@@ -17,7 +17,7 @@ RUN curl -sSLo /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-
     && apt-get install -y /tmp/chrome.deb \
     && rm /tmp/chrome.deb
 
-# Install volkan and mesa utils
+# Install vulkan and mesa utils
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       mesa-vulkan-drivers \
