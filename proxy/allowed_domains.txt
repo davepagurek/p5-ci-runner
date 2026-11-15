@@ -13,6 +13,10 @@
 # Package installs
 registry.npmjs.org
 
+# Playwright browser downloads (npm ci installs Chromium; the second is its fallback mirror)
+cdn.playwright.dev
+playwright.download.prss.microsoft.com
+
 # Fonts used by p5 tests
 fonts.googleapis.com
 fonts.gstatic.com
