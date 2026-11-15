@@ -31,8 +31,13 @@ RUN useradd -m runner
 WORKDIR /home/runner
 
 # Download runner
-RUN curl -fsSL https://github.com/actions/runner/releases/download/v2.328.0/actions-runner-linux-x64-2.328.0.tar.gz \
-    | tar xz
+ARG RUNNER_VERSION
+ARG RUNNER_SHA256
+RUN test -n "$RUNNER_VERSION" && test -n "$RUNNER_SHA256" \
+    && curl -fsSLo /tmp/runner.tar.gz https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
+    && echo "${RUNNER_SHA256}  /tmp/runner.tar.gz" | sha256sum -c - \
+    && tar xzf /tmp/runner.tar.gz \
+    && rm /tmp/runner.tar.gz
 
 # Install runner deps
 RUN ./bin/installdependencies.sh
