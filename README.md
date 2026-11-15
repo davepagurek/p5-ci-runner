@@ -1,50 +1,32 @@
-Install deps:
-```sh
-sudo apt  install docker.io
-```
+## Setup
+
+On the server (Debian/Ubuntu), from the root of this repo:
 
 ```sh
-# Make sure the docker group exists
-sudo groupadd docker || true
-
-# Add your user to the docker group
-sudo usermod -aG docker $USER
-
-# Apply changes immediately
-newgrp docker
+sudo ./setup.sh
 ```
 
-Build the image (from the root of this repo):
+...or with an NVIDIA GPU:
 ```sh
-docker build -t p5-ci-runner runner
+sudo ./setup.sh --nvidia
 ```
 
-Run the image manually:
+Re-run it after changing anything in `proxy/` or `runner/` (e.g. `proxy/allowed_domains.txt`). Use `--recreate-network` if you change network settings.
+
+## Orchestrator
+
+Create a fine-grained token at https://github.com/settings/personal-access-tokens, limited to the one repo, with only the "Administration: read and write" permission.
+
 ```sh
-docker run --rm -it \
-  -e GITHUB_URL=https://github.com/<owner>/<repo> \
-  -e GITHUB_TOKEN=<registration_token> \
-  --device /dev/dri:/dev/dri \
-  p5-ci-runner
-```
-
-...or if you have an nvidia GPU:
-```sh
-docker run --rm -it \
-  -e GITHUB_URL=https://github.com/<owner>/<repo> \
-  -e GITHUB_TOKEN=<registration_token> \
-  --gpus all \
-  p5-ci-runner
-```
-
-Orchestrator:
-- Get an access token from https://github.com/settings/tokens by going to:
-  - Generate Token (Classic)
-  - Adding `repo` and `workflow` permissions
-
-Run with:
-```
+cd orchestrator
 GPU_MODE=dri OWNER=processing REPO=p5.js PAT=your_token_here node server.mjs
 ```
 
 Use `GPU_MODE=nvidia` if using an nvidia GPU.
+
+## Tests
+
+```sh
+cd orchestrator && npm test
+./test/isolation.sh
+```

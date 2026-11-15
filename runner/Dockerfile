@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 # Install basic deps
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    curl git sudo unzip apt-transport-https ca-certificates \
+    curl git unzip apt-transport-https ca-certificates \
     libnss3 libatk-bridge2.0-0 libgtk-3-0 \
     libx11-xcb1 libxcomposite1 libxrandr2 libxdamage1 \
     libgbm1 libasound2 xvfb \

@@ -1,0 +1,18 @@
+# One entry per line. A leading dot matches the domain and all subdomains
+# (".github.com" matches github.com and api.github.com, NOT evilgithub.com).
+# Keep this as narrow as the tests allow.
+
+# GitHub (runner <-> GitHub, checkout, API)
+.github.com
+.githubusercontent.com
+
+# Actions artifact/cache/log storage (any Azure storage account; GitHub does not
+# publish a narrower stable list)
+.blob.core.windows.net
+
+# Package installs
+registry.npmjs.org
+
+# Fonts used by p5 tests
+fonts.googleapis.com
+fonts.gstatic.com
