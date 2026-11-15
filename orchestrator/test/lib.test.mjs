@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildRunArgs, validateConfig, NETWORK } from '../lib.mjs';
 
-const base = { owner: 'processing', repo: 'p5.js', gpuMode: 'dri', containerName: 'job-1' };
+const base = { owner: 'processing', repo: 'p5.js', gpuMode: 'dri', containerName: 'job-1', renderGid: 992 };
 const pair = (args, flag, value) =>
   args.some((a, i) => a === flag && args[i + 1] === value);
 
@@ -36,6 +36,11 @@ test('dri mode passes only the render node, not all of /dev/dri', () => {
   assert.ok(pair(args, '--device', '/dev/dri/renderD128'));
   assert.ok(!args.includes('/dev/dri'));
   assert.ok(!args.includes('--gpus'));
+});
+
+test('dri mode adds the host render group so the GPU is accessible', () => {
+  assert.ok(pair(buildRunArgs(base), '--group-add', '992'));
+  assert.throws(() => buildRunArgs({ ...base, renderGid: undefined }), /renderGid/);
 });
 
 test('nvidia mode uses --gpus all', () => {

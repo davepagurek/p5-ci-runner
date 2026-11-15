@@ -1,4 +1,5 @@
 import { spawn, execFile } from 'child_process';
+import { statSync } from 'fs';
 import util from 'util';
 import { buildRunArgs, validateConfig, NETWORK, PROXY_CONTAINER } from './lib.mjs';
 
@@ -13,6 +14,10 @@ const POLL_INTERVAL = 15_000; // 15s
 const JOB_TIMEOUT_MS = Number(process.env.JOB_TIMEOUT_MS) || 3 * 60 * 60 * 1000;
 
 validateConfig({ owner: OWNER, repo: REPO, pat: PAT, gpuMode: GPU_MODE });
+
+// The container's render group GID has to match the host's, or the GPU isn't accessible
+const DRI_DEVICE = process.env.DRI_DEVICE || '/dev/dri/renderD128';
+const RENDER_GID = GPU_MODE === 'dri' ? statSync(DRI_DEVICE).gid : undefined;
 
 let currentContainer = null;
 
@@ -59,7 +64,14 @@ function killContainer(name) {
 // Run container with the appropriate GPU flags
 function runJobContainer(token) {
   const containerName = `p5-ci-job-${Date.now()}`;
-  const args = buildRunArgs({ owner: OWNER, repo: REPO, gpuMode: GPU_MODE, containerName });
+  const args = buildRunArgs({
+    owner: OWNER,
+    repo: REPO,
+    gpuMode: GPU_MODE,
+    containerName,
+    driDevice: DRI_DEVICE,
+    renderGid: RENDER_GID,
+  });
 
   console.log(`Starting ${containerName} with GPU_MODE=${GPU_MODE}...`);
   return new Promise((resolve, reject) => {

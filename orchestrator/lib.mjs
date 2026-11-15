@@ -21,15 +21,23 @@ export function buildRunArgs({
   containerName,
   image = 'p5-ci-runner:latest',
   driDevice = '/dev/dri/renderD128',
+  // Group that owns driDevice on the host. The image's own render group GID is a guess,
+  // so without this the runner user can't open the GPU and Vulkan falls back to llvmpipe (CPU).
+  renderGid,
   memory = '8g',
   cpus = '4',
   pidsLimit = '4096',
 }) {
-  const gpuArgs =
-    gpuMode === 'nvidia' ? ['--gpus', 'all'] : ['--device', driDevice];
   if (gpuMode !== 'nvidia' && gpuMode !== 'dri') {
     throw new Error(`Unknown GPU_MODE: ${gpuMode}`);
   }
+  if (gpuMode === 'dri' && renderGid === undefined) {
+    throw new Error('renderGid is required for GPU_MODE=dri');
+  }
+  const gpuArgs =
+    gpuMode === 'nvidia'
+      ? ['--gpus', 'all']
+      : ['--device', driDevice, '--group-add', String(renderGid)];
 
   return [
     'run', '--rm',
