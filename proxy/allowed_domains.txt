@@ -6,6 +6,9 @@
 .github.com
 .githubusercontent.com
 
+# GitHub Pages sites (any user's; static content only)
+.github.io
+
 # Actions artifact/cache/log storage (any Azure storage account; GitHub does not
 # publish a narrower stable list)
 .blob.core.windows.net
@@ -16,6 +19,8 @@ registry.npmjs.org
 # Playwright browser downloads (npm ci installs Chromium; the second is its fallback mirror)
 cdn.playwright.dev
 playwright.download.prss.microsoft.com
+# Chrome for Testing builds are served from here. This is any Google Cloud Storage bucket, not just Google's.
+storage.googleapis.com
 
 # Fonts used by p5 tests
 fonts.googleapis.com
