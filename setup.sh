@@ -1,11 +1,12 @@
 #!/bin/bash
 # Sets up everything the orchestrator needs on this machine. Safe to re-run.
 #
-#   sudo ./setup.sh [--nvidia] [--daemon] [--reconfigure] [--recreate-network] [--force]
+#   sudo ./setup.sh [--nvidia] [--daemon [--runner-group NAME] [--reconfigure]] [--recreate-network] [--force]
 #
 #   --nvidia            install/configure the NVIDIA container toolkit (for GPU_MODE=nvidia)
 #   --daemon            also run the orchestrator at startup (systemd) and rebuild the runner image weekly
-#   --reconfigure       with --daemon: re-prompt for OWNER/REPO/PAT instead of reusing the saved ones
+#   --runner-group NAME with --daemon: register runners into this runner group instead of the org's Default group
+#   --reconfigure       with --daemon: re-prompt for the org and GitHub App instead of reusing the saved ones
 #   --recreate-network  remove and recreate the internal runner network
 #   --force             proceed even if runner containers are currently running (kills them)
 set -euo pipefail
@@ -22,16 +23,25 @@ DAEMON=0
 RECONFIGURE=0
 RECREATE=0
 FORCE=0
-for arg in "$@"; do
-  case "$arg" in
+RUNNER_GROUP_FLAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --nvidia) NVIDIA=1 ;;
     --daemon) DAEMON=1 ;;
+    --runner-group)
+      [ $# -ge 2 ] || { echo "--runner-group needs a name" >&2; exit 1; }
+      RUNNER_GROUP_FLAG="$2"; shift ;;
     --reconfigure) RECONFIGURE=1 ;;
     --recreate-network) RECREATE=1 ;;
     --force) FORCE=1 ;;
-    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
+  shift
 done
+if [ -n "$RUNNER_GROUP_FLAG" ] && [ "$DAEMON" -ne 1 ]; then
+  echo "--runner-group only applies with --daemon (otherwise set RUNNER_GROUP when running the orchestrator)." >&2
+  exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo $0 $*" >&2
@@ -116,16 +126,29 @@ docker network connect --alias proxy "$NET" "$PROXY"
 
 # --- Daemon (optional) -------------------------------------------------------
 if [ "$DAEMON" -eq 1 ]; then
-  [ -f "$ENV_FILE" ] && [ "$RECONFIGURE" -ne 1 ] && . "$ENV_FILE" || { OWNER=""; REPO=""; PAT=""; }
-  if [ -z "$OWNER" ]; then read -rp "GitHub owner (e.g. processing): " OWNER; fi
-  if [ -z "$REPO" ]; then read -rp "GitHub repo (e.g. p5.js): " REPO; fi
-  if [ -z "$PAT" ]; then read -rsp "Fine-grained token (Administration: read/write on that repo): " PAT; echo; fi
+  OWNER=""; RUNNER_GROUP=""; APP_CLIENT_ID=""; APP_PRIVATE_KEY_PATH=""
+  if [ -f "$ENV_FILE" ] && [ "$RECONFIGURE" -ne 1 ]; then . "$ENV_FILE"; fi
+  if [ -z "$OWNER" ]; then read -rp "GitHub organization (e.g. processing): " OWNER; fi
+  if [ -n "$RUNNER_GROUP_FLAG" ]; then RUNNER_GROUP="$RUNNER_GROUP_FLAG"; fi
+  if [ -z "$APP_CLIENT_ID" ]; then
+    read -rp "GitHub App client ID: " APP_CLIENT_ID
+    read -rp "Full path to the app's private key (.pem): " KEY_SRC
+    KEY_SRC="${KEY_SRC/#\~/$(getent passwd "$OPERATOR" | cut -d: -f6)}"
+    # The orchestrator (running as $OPERATOR) reads this itself, unlike the env file which systemd reads as root
+    APP_PRIVATE_KEY_PATH=/etc/p5-ci-orchestrator.pem
+    install -m 600 -o "$OPERATOR" "$KEY_SRC" "$APP_PRIVATE_KEY_PATH"
+  fi
 
   GPU_MODE=dri
   [ "$NVIDIA" -eq 1 ] && GPU_MODE=nvidia
-  # Not world-readable, since it holds the token
   install -m 600 /dev/null "$ENV_FILE"
-  printf 'GPU_MODE=%s\nOWNER=%s\nREPO=%s\nPAT=%s\n' "$GPU_MODE" "$OWNER" "$REPO" "$PAT" > "$ENV_FILE"
+  {
+    printf 'GPU_MODE=%s\nOWNER=%s\nAPP_CLIENT_ID=%s\nAPP_PRIVATE_KEY_PATH=%s\n' \
+      "$GPU_MODE" "$OWNER" "$APP_CLIENT_ID" "$APP_PRIVATE_KEY_PATH"
+    # Quoted since group names can contain spaces (systemd and the shell both accept this)
+    [ -n "$RUNNER_GROUP" ] && printf 'RUNNER_GROUP="%s"\n' "$RUNNER_GROUP"
+    true
+  } > "$ENV_FILE"
 
   cat > "/etc/systemd/system/$SERVICE.service" <<EOF
 [Unit]

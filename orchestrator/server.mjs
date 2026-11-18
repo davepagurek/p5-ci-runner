@@ -1,19 +1,30 @@
 import { spawn, execFile } from 'child_process';
-import { statSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import util from 'util';
-import { buildRunArgs, validateConfig, NETWORK, PROXY_CONTAINER } from './lib.mjs';
+import { buildRunArgs, createAppJwt, validateConfig, NETWORK, PROXY_CONTAINER } from './lib.mjs';
 
 const execFileAsync = util.promisify(execFile);
 
 // === CONFIG ===
-const OWNER = process.env.OWNER;
-const REPO = process.env.REPO;
-const PAT = process.env.PAT; // GitHub fine-grained token (Administration: read/write on this repo)
+const OWNER = process.env.OWNER; // the GitHub organization
+const RUNNER_GROUP = process.env.RUNNER_GROUP; // optional, defaults to the "Default" group
+// GitHub App owned by and installed on the org, with Organization permission
+// "Self-hosted runners: read and write"
+const APP_CLIENT_ID = process.env.APP_CLIENT_ID;
+const APP_PRIVATE_KEY_PATH = process.env.APP_PRIVATE_KEY_PATH;
 const GPU_MODE = process.env.GPU_MODE || 'dri'; // 'dri' or 'nvidia'
 const POLL_INTERVAL = 15_000; // 15s
 const JOB_TIMEOUT_MS = Number(process.env.JOB_TIMEOUT_MS) || 3 * 60 * 60 * 1000;
 
-validateConfig({ owner: OWNER, repo: REPO, pat: PAT, gpuMode: GPU_MODE });
+validateConfig({
+  owner: OWNER,
+  runnerGroup: RUNNER_GROUP,
+  clientId: APP_CLIENT_ID,
+  appPrivateKeyPath: APP_PRIVATE_KEY_PATH,
+  gpuMode: GPU_MODE,
+});
+const APP_PRIVATE_KEY = readFileSync(APP_PRIVATE_KEY_PATH, 'utf8');
+console.log(`Registering runners for ${OWNER} (runner group: ${RUNNER_GROUP || 'Default'}) as GitHub App ${APP_CLIENT_ID}`);
 
 // The container's render group GID has to match the host's, or the GPU isn't accessible
 const DRI_DEVICE = process.env.DRI_DEVICE || '/dev/dri/renderD128';
@@ -21,26 +32,61 @@ const RENDER_GID = GPU_MODE === 'dri' ? statSync(DRI_DEVICE).gid : undefined;
 
 let currentContainer = null;
 
-// Fetch ephemeral token from GitHub
-async function getEphemeralToken() {
-  const res = await fetch(
-    `https://api.github.com/repos/${OWNER}/${REPO}/actions/runners/registration-token`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PAT}`,
-        'Accept': 'application/vnd.github+json'
-      }
-    }
-  );
+async function githubRequest(path, token, { method = 'GET', body } = {}) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      ...(body && { 'Content-Type': 'application/json' })
+    },
+    body: body && JSON.stringify(body)
+  });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Failed to get ephemeral token: ${res.status} ${text}`);
+    throw new Error(`${method} ${path} failed: ${res.status} ${text}`);
   }
+  return res.json();
+}
 
-  const data = await res.json();
+let installationId = null;
+let installationToken = null; // { token, expiresAt }
+
+// Installation tokens last an hour and act as the app, so they are limited to what the
+// installation was granted, not to the permissions of whoever created the app.
+async function getInstallationToken() {
+  if (installationToken && installationToken.expiresAt - Date.now() > 5 * 60_000) {
+    return installationToken.token;
+  }
+  const jwt = createAppJwt({ clientId: APP_CLIENT_ID, privateKey: APP_PRIVATE_KEY });
+  if (!installationId) {
+    try {
+      installationId = (await githubRequest(`/orgs/${OWNER}/installation`, jwt)).id;
+    } catch (err) {
+      throw new Error(`Is the app installed on ${OWNER}? ${err.message}`);
+    }
+    console.log(`Using GitHub App installation ${installationId}`);
+  }
+  const data = await githubRequest(`/app/installations/${installationId}/access_tokens`, jwt, {
+    method: 'POST'
+  });
+  installationToken = { token: data.token, expiresAt: Date.parse(data.expires_at) };
   return data.token;
+}
+
+// Fetch ephemeral runner registration token from GitHub
+async function getEphemeralToken() {
+  try {
+    const data = await githubRequest(
+      `/orgs/${OWNER}/actions/runners/registration-token`,
+      await getInstallationToken(),
+      { method: 'POST' }
+    );
+    return data.token;
+  } catch (err) {
+    throw new Error(`Failed to get ephemeral token: ${err.message}`);
+  }
 }
 
 // Refuse to start a runner unless the isolated network and proxy are in place,
@@ -66,7 +112,7 @@ function runJobContainer(token) {
   const containerName = `p5-ci-job-${Date.now()}`;
   const args = buildRunArgs({
     owner: OWNER,
-    repo: REPO,
+    runnerGroup: RUNNER_GROUP,
     gpuMode: GPU_MODE,
     containerName,
     driDevice: DRI_DEVICE,
@@ -76,7 +122,7 @@ function runJobContainer(token) {
   console.log(`Starting ${containerName} with GPU_MODE=${GPU_MODE}...`);
   return new Promise((resolve, reject) => {
     const child = spawn('docker', args, {
-      env: { ...process.env, PAT: undefined, GITHUB_TOKEN: token },
+      env: { ...process.env, GITHUB_TOKEN: token },
       stdio: 'inherit',
     });
     currentContainer = containerName;
