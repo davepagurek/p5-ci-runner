@@ -40,14 +40,14 @@ This is set up only to work with a GitHub org.
 8. Click New Key, which downloads a PEM file. Copy that to the server you're running it on
 9. In the sidebar, click Install App, and install it on the organization
 
-Then, in the sidebar, go to Actions and then Runner groups. Create a group (e.g. `p5-webgpu`), change it to "Selected Repositories", and then click the gear icon (the text is inexplicably not part of the button) to pick the repo it should have access to. Turn on "Allow public repositories" if the repo is public so jobs don't stay queued. **Remember the group's name! This will be set as `RUNNER_GROUP`.**
+Then, in the sidebar, go to Actions and then Runner groups. Create a group (e.g. `p5-webgpu`), change it to "Selected Repositories", and then click the gear icon (the text is inexplicably not part of the button) to pick the repo it should have access to. Turn on "Allow public repositories" if the repo is public so jobs don't stay queued. **Remember the group's name! This will be set as `RUNNER_GROUP` or `--runner-group`.**
 
 ## Running automatically at startup
 
 Add `--daemon` to the setup command, with the name of the runner group you created (leave `--runner-group` off to use the org's Default group). It prompts for the organization, GitHub App client ID and private key file (stored in `/etc/p5-ci-orchestrator.env` and `/etc/p5-ci-orchestrator.pem`, readable only by the service user), and installs a systemd service for the orchestrator plus a weekly timer that rebuilds the runner image so it stays up to date. Needs Node.js 18+ on the host.
 
 ```sh
-sudo ./setup.sh --daemon --runner-group p5-webgpu
+sudo ./setup.sh --daemon --runner-group your-group-name-here
 ```
 
 Use `--reconfigure` to be prompted for the organization and app again. Check on it with:
